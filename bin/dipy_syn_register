@@ -1,4 +1,5 @@
 #!python
+
 from dipy.workflows.flow_runner import run_flow
 from dipy.workflows.align import SynRegistrationFlow
 

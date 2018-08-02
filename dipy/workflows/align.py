@@ -306,10 +306,8 @@ class ImageRegistrationFlow(Workflow):
                                                    affreg, params0)
 
         else:
-            _, affine, xopt, fopt = self.translate(static, static_grid2world,
-                                                   moving, moving_grid2world,
-                                                   affreg, params0)
-
+            _, affine = self.center_of_mass(static, static_grid2world, moving,
+                                            moving_grid2world)
         transform = RigidTransform3D()
         return self.perform_transformation(static, static_grid2world,
                                            moving, moving_grid2world,
@@ -628,7 +626,7 @@ class SynRegistrationFlow(Workflow):
         util.check_metric(metric)
 
         for static_file, moving_file, in_affine, \
-            warped_file in io:
+                warped_file in io:
 
             print(static_file, moving_file, in_affine, warped_file)
 
