@@ -41,6 +41,7 @@ class UtilMethods(object):
             raise ValueError('Dimension mismatch: The'
                              ' input images must have same number of '
                              'dimensions.')
+
     @staticmethod
     def check_metric(metric):
         """
