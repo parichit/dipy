@@ -11,7 +11,7 @@ from dipy.align.imaffine import AffineMap, transform_centers_of_mass, \
 from dipy.align.transforms import TranslationTransform3D, RigidTransform3D, \
     AffineTransform3D
 from dipy.io.image import save_nifti, load_nifti, load_affine_matrix, \
-    save_affine_matrix, save_quality_assur_metric
+    save_affine_matrix, save_quality_assur_metric, save_displacement_fields
 from dipy.align.imwarp import SymmetricDiffeomorphicRegistration
 from dipy.align.metrics import CCMetric
 
@@ -527,7 +527,7 @@ class ImageRegistrationFlow(Workflow):
             save_affine_matrix(affine_matrix_file, affine)
 
 
-class ApplyTransformFlow(Workflow):
+class ApplyAffineFlow(Workflow):
 
     def run(self, static_image_file, moving_image_files, affine_matrix_file,
             out_dir='', out_file='transformed.nii.gz'):
@@ -588,10 +588,10 @@ class SynRegistrationFlow(Workflow):
 
     def run(self, static_image_file, moving_image_file, affine_matrix_file,
             inv_static=False,
-            level_iters=[10, 10, 5], metric="cc", step_length=0.25,
+            level_iters=[1, 1, 1], metric="cc", step_length=0.25,
             ss_sigma_factor=0.2, opt_tol=1e-5, inv_iter=20,
             inv_tol=1e-3, out_dir='', out_warped='warped_moved.nii.gz',
-            out_inv_static='inc_static.nii.gz',
+            out_inv_static='inv_static.nii.gz',
             out_field='displacefield.txt'):
 
         """
@@ -653,11 +653,12 @@ class SynRegistrationFlow(Workflow):
             inverse mapping (default 'inv_static.nii.gz').
 
         out_field : string, optional
-            Name of the file to save the diffeomorphic field.
+            Name of the file to save the displacement field.
 
         """
 
         io = self.get_io_iterator()
+        metric = metric.lower()
         util = UtilMethods()
         util.check_metric(metric)
 
@@ -690,5 +691,20 @@ class SynRegistrationFlow(Workflow):
 
             warped_moving = mapping.transform(moving_image)
 
-            # Saving the warped moving file and the alignment matrix.
+            # Saving the warped moving file.
             save_nifti(warped_file, warped_moving, static_grid2world)
+
+            if inv_static:
+                # Saving the static image after applying inverse mapping.
+                warped_static = mapping.transform_inverse(static_image)
+                save_nifti(inv_static_file, warped_static, static_grid2world)
+
+            # Saving the displacement field.
+            #f = mapping.get_forward_field()
+            #b = mapping.get_backward_field()
+
+            # print(static_image.shape, moving_image.shape)
+            # print(f.shape, b.shape)
+
+            save_displacement_fields(displ_file, mapping.get_forward_field(),
+                                     mapping.get_backward_field())
