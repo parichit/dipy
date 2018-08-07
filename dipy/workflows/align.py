@@ -12,7 +12,8 @@ from dipy.align.transforms import TranslationTransform3D, RigidTransform3D, \
     AffineTransform3D
 from dipy.io.image import save_nifti, load_nifti, load_affine_matrix, \
     save_affine_matrix, save_quality_assur_metric
-from dipy.align.imwarp import SymmetricDiffeomorphicRegistration
+from dipy.align.imwarp import SymmetricDiffeomorphicRegistration, \
+    DiffeomorphicMap
 from dipy.align.metrics import CCMetric
 
 
@@ -590,7 +591,7 @@ class SynRegistrationFlow(Workflow):
             inv_static=False,
             level_iters=[5, 5, 5], metric="cc", step_length=0.25,
             ss_sigma_factor=0.2, opt_tol=1e-5, inv_iter=20,
-            inv_tol=1e-3, out_dir='', out_warped='warped_moved.nii.gz',
+            inv_tol=1e-3, out_dir='', out_warped_file='warped_moved.nii.gz',
             out_inv_static='inv_static.nii.gz',
             out_f_field='forward_field.nii.gz',
             out_b_field='backward_field.nii.gz'):
@@ -699,8 +700,8 @@ class SynRegistrationFlow(Workflow):
             # Saving the warped moving file.
             save_nifti(warped_file, warped_moving, static_grid2world)
 
+            # Saving the static image after applying inverse mapping.
             if inv_static:
-                # Saving the static image after applying inverse mapping.
                 warped_static = mapping.transform_inverse(static_img)
                 save_nifti(inv_static_file, warped_static, static_grid2world)
 
@@ -709,3 +710,76 @@ class SynRegistrationFlow(Workflow):
                        static_grid2world)
             save_nifti(b_disp_file, mapping.get_backward_field(),
                        moving_grid2world)
+
+
+class ApplySynFlow(Workflow):
+
+    def run(self, static_image_file, moving_image_file,
+            affine_matrix_file, disp_field_file, out_dir='',
+            out_warped_file='warped.nii.gz'):
+
+        io = self.get_io_iterator()
+        util = UtilMethods()
+
+        for static_img_file, moving_img_file, in_affine, \
+                disp_file, warped_file in io:
+
+            # Load the data from the input images.
+            static_img, static_grid2world, moving_img, \
+                moving_grid2world = util.get_image_data(static_img_file,
+                                                        moving_img_file)
+
+            # Load the deformation field.
+            deform = nib.load(disp_file)
+            deform_field = deform.get_data()
+
+            # Load the pre-align information from the affine matrix.
+            affine_matrix = load_affine_matrix(in_affine)
+
+            # Setup the deformation map object.
+            deform_map = DiffeomorphicMap(
+                3, deform_field.shape,
+                disp_grid2world=static_grid2world,
+                domain_shape=static_img.shape,
+                domain_grid2world=static_grid2world,
+                codomain_shape=moving_img.shape,
+                codomain_grid2world=moving_grid2world,
+                prealign=affine_matrix)
+
+            # Initialize the forward displacement field.
+            deform_map.set_forward_field(deform_field)
+
+            # Transform the moving image.
+            warped_image = deform_map.transform(
+                moving_img,
+                static_grid2world,
+                out_shape=static_img.shape,
+                out_grid2world=static_grid2world)
+
+            # mw = my_test.transform_inverse(static_img, image_world2grid=npl.inv(moving_grid2world),
+            #                        out_shape=moving_img.shape,
+            #                        out_grid2world=moving_grid2world)
+
+            # from dipy.align.imwarp import mult_aff
+            #
+            # this is the matrix which we need to multiply the voxel coordinates
+            # to interpolate on the forward displacement field ("in"side the
+            # 'forward' brackets in the expression above)
+            # affine_idx_in = mult_aff(static_grid2world, mult_aff(affine_matrix, static_grid2world))
+            #
+            # this is the matrix which we need to multiply the voxel coordinates
+            # to add to the displacement ("out"side the 'forward' brackets in the
+            # expression above)
+            # affine_idx_out = mult_aff(moving_grid2world, mult_aff(affine_matrix, static_grid2world))
+
+            # this is the matrix which we need to multiply the displacement vector
+            # prior to adding to the transformed input point
+            # affine_disp = moving_grid2world
+
+            # from dipy.align import vector_fields as vfu
+            # mw = vfu.warp_3d_nn(moving_img, mapping.get_forward_field())
+
+            # mw = my_test.transform(moving_img)
+
+            # Save the warped moving image.
+            save_nifti(warped_file, warped_image, static_grid2world)
