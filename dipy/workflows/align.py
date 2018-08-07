@@ -11,12 +11,22 @@ from dipy.align.imaffine import AffineMap, transform_centers_of_mass, \
 from dipy.align.transforms import TranslationTransform3D, RigidTransform3D, \
     AffineTransform3D
 from dipy.io.image import save_nifti, load_nifti, load_affine_matrix, \
-    save_affine_matrix, save_quality_assur_metric, save_displacement_fields
+    save_affine_matrix, save_quality_assur_metric
 from dipy.align.imwarp import SymmetricDiffeomorphicRegistration
 from dipy.align.metrics import CCMetric
 
 
 class UtilMethods(object):
+
+    @staticmethod
+    def get_image_data(static_img_file, moving_img_file):
+
+        # Loading the image data from the input files into object.
+        static_image = nib.load(static_img_file)
+        moving_image = nib.load(moving_img_file)
+
+        return static_image.get_data(), static_image.affine, \
+            moving_image.get_data(), moving_image.affine
 
     @staticmethod
     def check_dimensions(static, moving):
@@ -445,29 +455,25 @@ class ImageRegistrationFlow(Workflow):
         io_it = self.get_io_iterator()
         transform = transform.lower()
 
-        for static_img, mov_img, moved_file, affine_matrix_file, \
+        for static_img_file, moving_img_file, moved_file, affine_matrix_file, \
                 qual_val_file in io_it:
 
-            # Load the data from the input files and store into objects.
-            image = nib.load(static_img)
-            static = np.array(image.get_data())
-            static_grid2world = image.affine
+            util = UtilMethods()
+            static_img, static_grid2world, moving_img, \
+                moving_grid2world = util.get_image_data(static_img_file,
+                                                        moving_img_file)
 
-            image = nib.load(mov_img)
-            moving = np.array(image.get_data())
-            moving_grid2world = image.affine
-
-            self.check_dimensions(static, moving)
+            util.check_dimensions(static_img, moving_img)
 
             if transform == 'com':
-                moved_image, affine = self.center_of_mass(static,
+                moved_image, affine = self.center_of_mass(static_img,
                                                           static_grid2world,
-                                                          moving,
+                                                          moving_img,
                                                           moving_grid2world)
             else:
 
                 params0 = None
-                self.check_metric(metric)
+                util.check_metric(metric)
                 metric = MutualInformationMetric(nbins, sampling_prop)
 
                 """
@@ -481,18 +487,18 @@ class ImageRegistrationFlow(Workflow):
 
                 if transform == 'trans':
                     moved_image, affine, \
-                        xopt, fopt = self.translate(static,
+                        xopt, fopt = self.translate(static_img,
                                                     static_grid2world,
-                                                    moving,
+                                                    moving_img,
                                                     moving_grid2world,
                                                     affreg,
                                                     params0)
 
                 elif transform == 'rigid':
                     moved_image, affine, \
-                        xopt, fopt = self.rigid(static,
+                        xopt, fopt = self.rigid(static_img,
                                                 static_grid2world,
-                                                moving,
+                                                moving_img,
                                                 moving_grid2world,
                                                 affreg,
                                                 params0,
@@ -500,9 +506,9 @@ class ImageRegistrationFlow(Workflow):
 
                 elif transform == 'affine':
                     moved_image, affine, \
-                        xopt, fopt = self.affine(static,
+                        xopt, fopt = self.affine(static_img,
                                                  static_grid2world,
-                                                 moving,
+                                                 moving_img,
                                                  moving_grid2world,
                                                  affreg,
                                                  params0,
@@ -555,44 +561,41 @@ class ApplyAffineFlow(Workflow):
         """
 
         io = self.get_io_iterator()
-        img_register = ImageRegistrationFlow()
+        util = UtilMethods()
 
-        for static_image_file, moving_image_file, affine_matrix_file, \
-                out_file in io:
+        for static_img_file, moving_img_file, affine_matrix_file, \
+                transformed_file in io:
 
-            # Loading the image data from the input files into object.
-            static_image = nib.load(static_image_file)
-            static_grid2world = static_image.affine
-
-            moving_image = nib.load(moving_image_file)
-            image_data = moving_image.get_data()
+            static_img, static_grid2world, moving_img, \
+                _ = util.get_image_data(static_img_file, moving_img_file)
 
             # Doing a sanity check for validating the dimensions of the input
             # images.
-            img_register.check_dimensions(static_image, moving_image)
+            util.check_dimensions(static_img, moving_img)
 
             # Loading the affine matrix.
             affine_matrix = load_affine_matrix(affine_matrix_file)
 
             # Setting up the affine transformation object.
             img_transformation = AffineMap(affine=affine_matrix,
-                                           domain_grid_shape=image_data.shape)
+                                           domain_grid_shape=moving_img.shape)
 
             # Transforming the image/
-            transformed = img_transformation.transform(image_data)
+            transformed = img_transformation.transform(moving_img)
 
-            save_nifti(out_dir+out_file, transformed, affine=static_grid2world)
+            save_nifti(transformed_file, transformed, affine=static_grid2world)
 
 
 class SynRegistrationFlow(Workflow):
 
     def run(self, static_image_file, moving_image_file, affine_matrix_file,
             inv_static=False,
-            level_iters=[1, 1, 1], metric="cc", step_length=0.25,
+            level_iters=[5, 5, 5], metric="cc", step_length=0.25,
             ss_sigma_factor=0.2, opt_tol=1e-5, inv_iter=20,
             inv_tol=1e-3, out_dir='', out_warped='warped_moved.nii.gz',
             out_inv_static='inv_static.nii.gz',
-            out_field='displacefield.txt'):
+            out_f_field='forward_field.nii.gz',
+            out_b_field='backward_field.nii.gz'):
 
         """
         Parameters
@@ -652,8 +655,11 @@ class SynRegistrationFlow(Workflow):
             Name of the file to save the static image after applying the
             inverse mapping (default 'inv_static.nii.gz').
 
-        out_field : string, optional
-            Name of the file to save the displacement field.
+        out_f_field : string, optional
+            Name of the file to save the forward displacement field.
+
+        out_b_field : string, optional
+            Name of the file to save the backward displacement field.
 
         """
 
@@ -662,49 +668,46 @@ class SynRegistrationFlow(Workflow):
         util = UtilMethods()
         util.check_metric(metric)
 
-        for static_file, moving_file, in_affine, \
-                warped_file, inv_static_file, displ_file in io:
+        for static_img_file, moving_img_file, in_affine, \
+                warped_file, inv_static_file, \
+                f_disp_file, b_disp_file in io:
 
-            print(static_file, moving_file, in_affine, warped_file)
-
-            # Loading the image data from the input files into object.
-            static_img_data = nib.load(static_file)
-            static_image = static_img_data.get_data()
-            static_grid2world = static_img_data.affine
-
-            moving_img_data = nib.load(moving_file)
-            moving_image = moving_img_data.get_data()
-            moving_grid2world = moving_img_data.affine
+            static_img, static_grid2world, moving_img, \
+                moving_grid2world = util.get_image_data(static_img_file,
+                                                        moving_img_file)
 
             # Sanity check for the input image dimensions.
-            util.check_dimensions(static_image, moving_image)
+            util.check_dimensions(static_img, moving_img)
 
             # Loading the affine matrix.
             affine_matrix = load_affine_matrix(in_affine)
 
             metric = CCMetric(3)
-            sdr = SymmetricDiffeomorphicRegistration(metric, level_iters)
+            sdr = SymmetricDiffeomorphicRegistration(
+                    metric, level_iters,
+                    step_length=step_length,
+                    ss_sigma_factor=ss_sigma_factor,
+                    opt_tol=opt_tol,
+                    inv_iter=inv_iter,
+                    inv_tol=inv_tol)
 
-            mapping = sdr.optimize(static_image, moving_image,
-                                   static_grid2world, moving_grid2world,
+            mapping = sdr.optimize(static_img, moving_img,
+                                   static_grid2world,
+                                   moving_grid2world,
                                    affine_matrix)
 
-            warped_moving = mapping.transform(moving_image)
+            warped_moving = mapping.transform(moving_img)
 
             # Saving the warped moving file.
             save_nifti(warped_file, warped_moving, static_grid2world)
 
             if inv_static:
                 # Saving the static image after applying inverse mapping.
-                warped_static = mapping.transform_inverse(static_image)
+                warped_static = mapping.transform_inverse(static_img)
                 save_nifti(inv_static_file, warped_static, static_grid2world)
 
-            # Saving the displacement field.
-            #f = mapping.get_forward_field()
-            #b = mapping.get_backward_field()
-
-            # print(static_image.shape, moving_image.shape)
-            # print(f.shape, b.shape)
-
-            save_displacement_fields(displ_file, mapping.get_forward_field(),
-                                     mapping.get_backward_field())
+            # Saving the forward and backward displacement field(s).
+            save_nifti(f_disp_file, mapping.get_forward_field(),
+                       static_grid2world)
+            save_nifti(b_disp_file, mapping.get_backward_field(),
+                       moving_grid2world)
