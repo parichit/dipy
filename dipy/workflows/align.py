@@ -546,7 +546,7 @@ class ApplyAffineFlow(Workflow):
 
         moving_image_files : string
             Location of moving image(s). It can be a single image or a
-            folder containing multiple images.
+             folder containing multiple images.
 
         affine_matrix_file : string
             The text file containing the affine matrix for transformation.
@@ -555,9 +555,7 @@ class ApplyAffineFlow(Workflow):
             Directory to save the transformed files (default '').
 
         out_file : string, optional
-            Name of the transformed file. If no name is given then a
-            suffix 'transformed' will be appended to the name of the
-            original input file (default 'transformed.nii.gz').
+            Name of the transformed file (default 'transformed.nii.gz').
         """
 
         io = self.get_io_iterator()
