@@ -251,20 +251,7 @@ class DiffeomorphicMap(object):
     def set_forward_field(self, field):
         r""" Set the Deformation field to transform in the forward direction
         """
-
-        if field:
-            self.forward = field
-        else:
-            self.forward = None
-
-    def set_backward_field(self, field):
-        r""" Set the Deformation field to transform in the backward direction
-        """
-
-        if field:
-            self.backward = field
-        else:
-            self.backward = None
+        self.forward = field
 
     def allocate(self):
         r"""Creates a zero displacement field
