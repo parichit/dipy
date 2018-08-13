@@ -14,6 +14,7 @@ from dipy.io.image import save_nifti, load_nifti, load_affine_matrix, \
     save_affine_matrix, save_quality_assur_metric
 from dipy.align.imwarp import SymmetricDiffeomorphicRegistration
 from dipy.align.metrics import CCMetric
+from dipy.viz import regtools
 
 
 class UtilMethods(object):
@@ -665,18 +666,42 @@ class SynRegistrationFlow(Workflow):
 
             # Loading the image data from the input files into object.
             static_img_data = nib.load(static_file)
-            static_image = static_img_data.get_data()
+            static_image = np.squeeze(static_img_data.get_data())[..., 0]
             static_grid2world = static_img_data.affine
 
             moving_img_data = nib.load(moving_file)
             moving_image = moving_img_data.get_data()
             moving_grid2world = moving_img_data.affine
 
+            # Remove the skull from the image
+            from dipy.segment.mask import median_otsu
+            static_masked, stanford_b0_mask = median_otsu(static_image, 4, 4)
+            moving_masked, syn_b0_mask = median_otsu(moving_image, 4, 4)
+
+            static_image = static_masked
+            moving_image = moving_masked
+
             # Sanity check for the input image dimensions.
             util.check_dimensions(static_image, moving_image)
 
+            #Pre setup alignment matrix.
+            pre_align = np.array([[1.02783543e+00, -4.83019053e-02, -6.07735639e-02, -2.57654118e+00],
+                                  [4.34051706e-03, 9.41918267e-01, -2.66525861e-01, 3.23579799e+01],
+                                  [5.34288908e-02, 2.90262026e-01, 9.80820307e-01, -1.46216651e+01],
+                                  [0.00000000e+00, 0.00000000e+00, 0.00000000e+00, 1.00000000e+00]])
+
+            from dipy.align.imaffine import AffineMap
+            affine_map = AffineMap(pre_align,
+                                   static_image.shape, static_grid2world,
+                                   moving_image.shape, moving_grid2world)
+
+            resampled = affine_map.transform(moving_image)
+
+            regtools.overlay_slices(static_image, resampled, None, 1,
+                                    'Static', 'Moving', 'input_3d.png')
+
             # Loading the affine matrix.
-            affine_matrix = load_affine_matrix(in_affine)
+            affine_matrix = pre_align
 
             metric = CCMetric(3)
             sdr = SymmetricDiffeomorphicRegistration(metric, level_iters)
@@ -686,6 +711,9 @@ class SynRegistrationFlow(Workflow):
                                    affine_matrix)
 
             warped_moving = mapping.transform(moving_image)
+            regtools.overlay_slices(static_image, warped_moving, None, 1,
+                                    'Static', 'Warped moving',
+                                    'warped_moving.png')
 
             # Saving the warped moving file and the alignment matrix.
             save_nifti(warped_file, warped_moving, static_grid2world)
