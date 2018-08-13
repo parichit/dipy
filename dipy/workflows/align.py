@@ -7,11 +7,12 @@ import nibabel as nib
 
 from dipy.align.reslice import reslice
 from dipy.align.imaffine import transform_centers_of_mass, \
-    MutualInformationMetric, AffineRegistration
+    MutualInformationMetric, AffineRegistration, AffineMap
 from dipy.align.transforms import TranslationTransform3D, RigidTransform3D, \
     AffineTransform3D
 from dipy.io.image import save_nifti, load_nifti, save_affine_matrix, \
     save_quality_assur_metric
+from dipy.viz import regtools
 
 
 class ResliceFlow(Workflow):
@@ -443,7 +444,7 @@ class ImageRegistrationFlow(Workflow):
 
             # Load the data from the input files and store into objects.
             image = nib.load(static_img)
-            static = np.array(image.get_data())
+            static = np.squeeze(image.get_data())[..., 0]
             static_grid2world = image.affine
 
             image = nib.load(mov_img)
@@ -452,7 +453,18 @@ class ImageRegistrationFlow(Workflow):
 
             self.check_dimensions(static, moving)
 
-            print(progressive)
+            # Drawing the slices on the same grid before the registration
+            # identity = np.eye(4)
+            # affine_map = AffineMap(identity,
+            #                        static.shape, static_grid2world,
+            #                        moving.shape, moving_grid2world)
+            # resampled = affine_map.transform(moving)
+            # regtools.overlay_slices(static, resampled, None, 0,
+            #                         "Static", "Moving", "resampled_sagittal.png")
+            # regtools.overlay_slices(static, resampled, None, 1,
+            #                         "Static", "Moving", "resampled_coronal.png")
+            # regtools.overlay_slices(static, resampled, None, 2,
+            #                         "Static", "Moving", "resampled_axial.png")
 
             if transform == 'com':
                 moved_image, affine = self.center_of_mass(static,
@@ -517,6 +529,14 @@ class ImageRegistrationFlow(Workflow):
 
                 if save_metric:
                     save_quality_assur_metric(qual_val_file, xopt, fopt)
+
+            # Drawing the slices after the transformation.
+            regtools.overlay_slices(static, moved_image, None, 0,
+                                    "Static", "Transformed", "transformed_affine_sagittal.png")
+            regtools.overlay_slices(static, moved_image, None, 1,
+                                    "Static", "Transformed", "transformed_affine_coronal.png")
+            regtools.overlay_slices(static, moved_image, None, 2,
+                                    "Static", "Transformed", "transformed_affine_axial.png")
 
             save_nifti(moved_file, moved_image, static_grid2world)
             save_affine_matrix(affine_matrix_file, affine)
