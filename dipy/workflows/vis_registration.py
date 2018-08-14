@@ -151,7 +151,7 @@ class VisualizeRegisteredImage(Workflow):
         cnt = 0
         x, y, num_slices = slice_actor.shape[:3]
 
-        rows, cols = self.get_row_cols(num_slices)
+        rows, cols = 5, 15
         border = 5
 
         for j in range(rows):
@@ -237,7 +237,7 @@ class VisualizeRegisteredImage(Workflow):
             renderer.add(slice_actor)
             renderer.reset_camera()
             renderer.zoom(1.6)
-            snap = snapshot(renderer)
+            snap = snapshot(renderer, size=(300, 300))
             snap1 = self.adjust_color_range(snap)
             slices.append(snap1)
 
@@ -313,7 +313,7 @@ class VisualizeRegisteredImage(Workflow):
             # Load the data from the input files and store into objects.
 
             image = nib.load(static_img)
-            static = image.get_data()
+            static = np.squeeze(image.get_data())[...,0]
 
             image = nib.load(mov_img)
             moved_image = image.get_data()
